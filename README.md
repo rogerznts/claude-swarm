@@ -1,155 +1,132 @@
 # Claude Swarm
 
-[![PyPI](https://img.shields.io/pypi/v/claude-swarm)](https://pypi.org/project/claude-swarm/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-44%20passing-brightgreen.svg)]()
+[![Crystal](https://img.shields.io/badge/crystal-1.19+-ff6f00.svg)](https://crystal-lang.org/)
 
-**Multi-agent orchestration for Claude Code** — decompose complex tasks into parallel subtasks, coordinate agents in real-time, and visualize everything in a rich terminal UI.
+Dependency-aware multi-agent orchestration for Claude-style coding workflows, now ported to Crystal.
 
-Built with the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) for the [Claude Code Hackathon](https://cerebralvalley.ai/hackathons/claude-code-hackathon-aaHFuycPfjQa5dNaxZpU) (Feb 10-16, 2026).
+Claude Swarm decomposes a large engineering task into subtasks, executes them through a pluggable agent runtime, runs an optional quality gate, and records every session for replay.
 
-## How It Works
+## What It Does
 
-```
+```text
 You: "Refactor auth module from Express middleware to Next.js API routes"
 
 Claude Swarm:
-  Phase 1:   Opus 4.6 decomposes task into dependency graph
-  Phase 2:   Parallel agents execute subtasks with live dashboard
-  Phase 2.5: Opus 4.6 Quality Gate reviews all agent outputs
-  Phase 3:   Results summary with costs and session replay
+  Phase 1:   Decompose the task into a dependency graph
+  Phase 2:   Execute agent tasks with budget/retry/file-lock control
+  Phase 2.5: Run a quality gate across combined outputs
+  Phase 3:   Print results and persist a replayable session
 ```
 
-1. **Task Decomposition** — Describe a complex task. Opus 4.6 analyzes your codebase and breaks it into a dependency graph of subtasks
-2. **Parallel Agent Spawning** — Independent subtasks run simultaneously via Claude Agent SDK. Dependent tasks wait.
-3. **Real-time Coordination** — File conflict detection prevents agents from stepping on each other. Budget enforcement stops runaway costs.
-4. **Opus Quality Gate** — After agents complete, Opus 4.6 reviews the combined output for correctness, consistency, and completeness
-5. **Rich Terminal UI** — `htop`-style dashboard showing agent progress, tool usage, costs, and file conflicts in real-time
-6. **Session Replay** — Every swarm execution is recorded. Replay any session to review what each agent did.
+- Task decomposition into `SwarmTask` graphs with dependencies and file ownership hints
+- Budget enforcement, retry tracking, conflict detection, and session recording
+- Replayable JSONL timelines in `~/.claude-swarm/sessions/<session-id>/`
+- Demo mode that works without an API key
+- YAML config auto-detection from `swarm.yaml` or `.claude/swarm.yaml`
+- Crystal CLI with terminal dashboard output and subcommands for `sessions` and `replay`
 
 ## Quick Start
 
+### Requirements
+
+- Crystal 1.19+
+- Shards 0.20+
+- `claude` installed and authenticated, or a custom `CLAUDE_SWARM_AGENT_CMD`
+
+### Run the demo
+
 ```bash
-# See it in action instantly (no API key needed!)
-pip install claude-swarm
-claude-swarm --demo
-
-# Or install from source
-git clone https://github.com/affaan-m/claude-swarm
-cd claude-swarm
-pip install -e .
-
-# Set your API key for real usage
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Run a swarm
-claude-swarm "Refactor auth module from Express middleware to Next.js API routes"
-
-# Dry run (shows plan without executing)
-claude-swarm --dry-run "Add user authentication with JWT"
-
-# Custom budget, agents, and retries
-claude-swarm --budget 3.0 --max-agents 6 --retry 2 "Build a REST API for user management"
-
-# Disable quality gate for faster execution
-claude-swarm --no-quality-gate "Quick fix: update README"
+crystal run bin/claude-swarm -- --demo
 ```
 
-## Architecture
+### Build the binary
 
-```
-┌───────────────────────────────────────────────┐
-│              Claude Swarm CLI                  │
-│                                                │
-│  Phase 1: Decompose                            │
-│  ┌─────────────────────────────────────────┐   │
-│  │  Opus 4.6 Task Decomposer              │   │
-│  │  "Add auth" -> [create routes,          │   │
-│  │   add middleware, write tests, review]   │   │
-│  └──────────────┬──────────────────────────┘   │
-│                 │ dependency graph              │
-│  Phase 2: Execute                              │
-│  ┌──────────────▼──────────────────────────┐   │
-│  │       Swarm Orchestrator                │   │
-│  │                                         │   │
-│  │  Wave 1: ┌────────┐ ┌────────┐         │   │
-│  │          │ Agent 1 │ │ Agent 2 │  (parallel)│
-│  │          │ coder   │ │ coder   │         │  │
-│  │          └────┬────┘ └────┬────┘         │  │
-│  │  Wave 2:      └─────┬─────┘              │  │
-│  │               ┌─────▼─────┐              │  │
-│  │               │  Agent 3  │  (depends)   │  │
-│  │               │  tester   │              │  │
-│  │               └─────┬─────┘              │  │
-│  │  Wave 3:      ┌─────▼─────┐              │  │
-│  │               │  Agent 4  │  (depends)   │  │
-│  │               │  reviewer │              │  │
-│  │               └───────────┘              │  │
-│  │                                          │  │
-│  │  File Locks: {auth.ts -> Agent 1}       │  │
-│  │  Budget: $0.23 / $5.00                  │  │
-│  │  Retries: task-2 (attempt 2/3)          │  │
-│  └──────────────────────────────────────────┘  │
-│                                                │
-│  Phase 2.5: Quality Gate                       │
-│  ┌──────────────────────────────────────────┐  │
-│  │  Opus 4.6 reviews combined agent output  │  │
-│  │  Score: 8/10 | Verdict: PASS            │  │
-│  └──────────────────────────────────────────┘  │
-│                                                │
-│  Phase 3: Results                              │
-│  ┌──────────────────────────────────────────┐  │
-│  │  4/4 tasks completed | $0.45 | 32s      │  │
-│  │  Session: swarm-a1b2c3d4                 │  │
-│  └──────────────────────────────────────────┘  │
-└────────────────────────────────────────────────┘
+```bash
+crystal build bin/claude-swarm
+./claude-swarm --version
 ```
 
-## Features
+### Run a swarm
 
-| Feature | Description |
-|---------|-------------|
-| **Dependency-aware scheduling** | Tasks only start when their dependencies complete |
-| **File conflict detection** | Pessimistic file locking prevents agents from editing the same file simultaneously |
-| **Budget enforcement** | Hard cost limit — cancels remaining tasks when budget is exceeded |
-| **Cost tracking** | Real-time per-agent and total cost monitoring |
-| **Opus Quality Gate** | Phase 2.5 — Opus 4.6 reviews all agent outputs for correctness and consistency |
-| **Smart model selection** | Opus 4.6 for planning + quality review, Haiku for worker agents (3x cheaper) |
-| **Task retry** | Failed tasks are automatically retried with configurable attempt limits |
-| **Demo mode** | `--demo` flag shows animated TUI without API key (great for presentations) |
-| **Session recording** | Every swarm execution recorded as JSONL events |
-| **Session replay** | `claude-swarm replay <id>` to review what each agent did |
-| **YAML config** | Declarative swarm topologies via `swarm.yaml` |
-| **Progress visualization** | Live htop-style dashboard with Rich |
+```bash
+./claude-swarm "Refactor auth module from Express middleware to Next.js API routes"
+```
+
+### Dry run
+
+```bash
+./claude-swarm --dry-run "Add user authentication with JWT"
+```
+
+### Sessions and replay
+
+```bash
+./claude-swarm sessions
+./claude-swarm replay swarm-abc123def456
+```
+
+## Agent Runtime
+
+The Crystal port talks to the `claude` CLI directly from Crystal.
+
+By default Claude Swarm runs:
+
+```bash
+claude --print --output-format stream-json
+```
+
+and parses the resulting event stream natively in Crystal.
+
+If `CLAUDE_SWARM_AGENT_CMD` is set, Claude Swarm instead executes that custom command and expects the internal `SWARM_*` protocol on stdout.
+
+The command contract is:
+
+- stdin: full prompt text
+- stdout `SWARM_TEXT\t<text>`: explicit text chunk
+- stdout `SWARM_TOOL\t<tool>\t<json>`: tool-use event recorded in the session
+- stdout `SWARM_COST\t<number>`: total USD cost for the run
+
+Direct Claude binary override:
+
+```bash
+export CLAUDE_BIN=/path/to/claude
+```
+
+Custom command override:
+
+```bash
+export CLAUDE_SWARM_AGENT_CMD='/path/to/custom_swarm_runtime'
+```
+
+The custom command path is optional and exists only for non-`claude` runtimes. The default path is now fully native Crystal.
 
 ## CLI Reference
 
 ```bash
-# Main command
 claude-swarm [OPTIONS] TASK
 
 Options:
-  -d, --cwd TEXT            Working directory (default: .)
-  -n, --max-agents INTEGER  Max concurrent agents (default: 4)
-  -m, --model TEXT          Decomposition model (default: opus)
-  -b, --budget FLOAT        Max budget in USD (default: 5.0)
-  -r, --retry INTEGER       Max retries for failed tasks (default: 1)
-  -c, --config PATH         Path to swarm.yaml
-  --demo                    Run demo simulation (no API key needed)
-  --dry-run                 Show plan without executing
-  --quality-gate/--no-quality-gate  Enable/disable Opus quality review (default: on)
-  --no-ui                   Disable rich terminal UI
-  -v, --version             Show version
+  -d, --cwd PATH
+  -n, --max-agents N
+  -m, --model MODEL
+  -b, --budget USD
+  -r, --retry N
+  -c, --config PATH
+  --dry-run
+  --demo
+  --scenario auth|api
+  --quality-gate
+  --no-quality-gate
+  --no-ui
+  -v, --version
 
-# Subcommands
-claude-swarm sessions              # List past sessions
-claude-swarm replay <session-id>   # Replay a session's events
+Subcommands:
+  claude-swarm sessions
+  claude-swarm replay <session-id>
 ```
 
 ## YAML Configuration
-
-Create `swarm.yaml` in your project root to define custom agent types:
 
 ```yaml
 swarm:
@@ -182,68 +159,44 @@ connections:
     to: reviewer
 ```
 
-Claude Swarm auto-detects `swarm.yaml` or `.claude/swarm.yaml` in your project.
+## Project Layout
 
-## How Opus 4.6 Is Used
+```text
+bin/claude-swarm          Crystal entrypoint
+src/claude_swarm.cr       top-level requires
+src/claude_swarm/*.cr     Crystal implementation
+spec/*.cr                 Crystal specs
+examples/swarm.yaml       sample topology config
+```
 
-Claude Swarm demonstrates strategic model selection with **two critical Opus 4.6 touchpoints**:
-
-### Phase 1: Task Decomposition (Planning)
-Opus 4.6 handles the hardest reasoning task — analyzing your codebase, understanding the architecture, identifying dependencies between subtasks, and producing a parallelizable execution plan. This requires deep understanding of code relationships and optimal task splitting.
-
-### Phase 2: Worker Execution
-Haiku handles the parallelizable work — each agent follows focused instructions from the plan. Using Haiku here is 3x cheaper while maintaining 90% of Sonnet's capability for focused tasks.
-
-### Phase 2.5: Quality Gate (Review)
-After all agents complete, Opus 4.6 reviews the combined output. It checks for integration issues between agents' work, missed edge cases, security concerns, and whether the original task was fully addressed. This catches problems that individual agents can't see.
-
-This mirrors real engineering team structure: **a senior architect designs the plan, junior engineers execute in parallel, and the senior reviews the combined result**.
-
-## Tech Stack
-
-- **Python 3.11+** with `anyio` for structured async concurrency
-- **claude-agent-sdk** (v0.1.35+) for Claude Code subprocess control
-- **Rich** for terminal UI (Live dashboard with panels and tables)
-- **Click** for CLI framework
-- **Pydantic** for data validation
-- **NetworkX** for dependency graph topological sorting
+The repository now contains only the active Crystal implementation.
 
 ## Development
 
 ```bash
-# Clone and install
-git clone https://github.com/affaan-m/claude-swarm
-cd claude-swarm
-pip install -e ".[dev]"
+# format
+crystal tool format src spec bin/claude-swarm
 
-# Run tests (44 passing)
-pytest tests/ -v
+# run specs
+crystal spec --error-trace
 
-# Lint
-ruff check src/ tests/
+# build
+crystal build bin/claude-swarm --error-trace
+
+# smoke test demo
+crystal run bin/claude-swarm -- --demo --no-ui
 ```
 
-## Project Structure
+## Verification
 
-```
-src/claude_swarm/
-  cli.py           CLI entry point (Click group + subcommands)
-  types.py         Core dataclasses (SwarmTask, SwarmPlan, etc.)
-  decomposer.py    Opus 4.6 task decomposition
-  orchestrator.py  Parallel execution with file locks, budget, retries
-  quality_gate.py  Opus 4.6 quality review of agent outputs
-  demo.py          Demo simulation with animated TUI
-  config.py        YAML swarm topology configuration
-  session.py       JSONL event recording and replay
-  ui.py            Rich terminal dashboard
-```
+Current Crystal port verification:
+
+- `crystal build bin/claude-swarm --error-trace`
+- `crystal spec --error-trace`
+- `crystal run bin/claude-swarm -- --version`
+- `crystal run bin/claude-swarm -- sessions`
+- `crystal run bin/claude-swarm -- --demo --no-ui`
 
 ## License
 
-MIT — [Affaan Mustafa](https://x.com/affaanmustafa)
-
-## Acknowledgments
-
-- [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) for the subprocess control layer
-- [Everything Claude Code](https://github.com/affaan-m/everything-claude-code) for agent patterns and inspiration
-- Built for the [Cerebral Valley x Anthropic Claude Code Hackathon](https://cerebralvalley.ai/hackathons/claude-code-hackathon-aaHFuycPfjQa5dNaxZpU)
+MIT

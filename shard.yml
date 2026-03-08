@@ -1,0 +1,11 @@
+name: claude-swarm
+version: 0.2.0
+
+authors:
+  - Affaan Mustafa <affaan@hey.com>
+
+license: MIT
+
+targets:
+  claude-swarm:
+    main: bin/claude-swarm
