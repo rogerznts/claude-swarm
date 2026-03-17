@@ -1,4 +1,5 @@
 .crystal/
-claude-swarm
-claude-swarm.dwarf
+/claude-swarm
+/claude-swarm.dwarf
+!/bin/claude-swarm
 .env
